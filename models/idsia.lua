@@ -1,60 +1,42 @@
-local networks = require 'models.networks'
-
-local idsia_net = {}
-
-function idsia_net.get_network(opt)
-  local network = nn.Sequential()
-
-  local nbr_elements = {}
-  for c in string.gmatch(opt.cnn, "%d+") do
-    nbr_elements[#nbr_elements + 1] = tonumber(c)
-  end
-  assert(#nbr_elements == 4,
-      'opt.cnn should contain 4 comma separated values when working with '..
-      'the idsia network, got '..#nbr_elements)
+local nn = require 'nn'
+local image = require 'image'
 
 
-  local conv1 = networks.new_conv(3,nbr_elements[1], false, opt.no_cnorm, 7)
-  local conv2 = networks.new_conv(nbr_elements[1],nbr_elements[2],
-                                  false, opt.no_cnorm, 4)
-  local conv3 = networks.new_conv(nbr_elements[2],nbr_elements[3],
-                                  false, opt.no_cnorm, 4)
+local Convolution = nn.SpatialConvolution
+local Activation = nn.Tanh
+local Max = nn.SpatialMaxPooling
+local View = nn.View
+local Linear = nn.Linear
+local Conorm = nn.SpatialContrastiveNormalization
 
-  local conv_output_size = networks.convs_noutput({conv1,conv2,conv3})
+local model  = nn.Sequential()
 
-  local fc = networks.new_fc(conv_output_size, nbr_elements[4])
-  local classifier = networks.new_classifier(nbr_elements[4],
-                                             networks.nbr_classes)
+--First Conv layer
+model:add(Convolution(3, 100, 7, 7))
+model:add(Activation())
+model:add(Max(2, 2, 2, 2))
+model:add(Conorm(100, image.gaussian1D(5)))
 
- -- if opt.st and opt.locnet and opt.locnet ~= '' then
-  --  network:add(networks.new_spatial_tranformer(opt.locnet,
- --                                               opt.rot, opt.sca, opt.tra,
- --                                               nil, nil,
- --                                               opt.no_cuda))
- -- end
-  network:add(conv1)
- -- if opt.locnet2 and opt.locnet2 ~= '' then
- --   local _,current_size = networks.convs_noutput({conv1})
- --   network:add(networks.new_spatial_tranformer(opt.locnet2,
- --                                               opt.rot, opt.sca, opt.tra,
- --                                               current_size, nbr_elements[1],
- --                                               opt.no_cuda))
- -- end
-  network:add(conv2)
-  --if opt.locnet3 and opt.locnet3 ~= '' then
-  --  local _,current_size = networks.convs_noutput({conv1, conv2})
-  --  network:add(networks.new_spatial_tranformer(opt.locnet3,
-  --                                              opt.rot, opt.sca, opt.tra,
-  --                                              current_size, nbr_elements[2],
-  --                                              opt.no_cuda))
- -- end
-  network:add(conv3)
-  network:add(fc)
-  network:add(classifier)
+--Second Conv layer
+model:add(Convolution(100, 150, 4, 4))
+model:add(Activation())
+model:add(Max(2, 2, 2, 2))
+model:add(Conorm(150, image.gaussian1D(5)))
 
-  return network
-end
+--Third Conv layer
+model:add(Convolution(150, 250, 4, 4))
+model:add(Activation())
+model:add(Max(2, 2, 2, 2))
+model:add(Conorm(250, image.gaussian1D(5)))
 
-local opt = {}
-opt.cnn = "100,150,250,300"
-return idsia_net.get_network(opt)
+--First Fully Connected layer
+--model:add(nn.Reshape(250*3*3))
+--model:add(Linear(250*3*3, 300))
+model:add(View(250))
+model:add(Linear(250, 300))
+model:add(Activation())
+
+--Output layer
+model:add(Linear(300, 43))
+
+return model
